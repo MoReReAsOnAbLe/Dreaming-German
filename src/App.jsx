@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 // ————— Bauhaus token system —————
 const INK = "#161616";
@@ -64,7 +64,7 @@ const SERIES = [
   {
     name: "Pokémon Horizonte · Staffel 1",
     level: "intermediate",
-    note: "The complete first season, official and free in German from The Pokémon Company & TOGGO. Native speed, but the visual storytelling makes it strong intermediate input. Use the playlist player to binge every episode in order — the ☰ icon in the player opens the episode list.",
+    note: "The complete first season, official and free in German from The Pokémon Company & TOGGO. Native speed, but the visual storytelling makes it strong intermediate input.",
     playlist: { id: "PLXxoD6545cq803nkjh7d1RnBpVttwmYkt", thumb: "Lm3T9tesWaw", title: "Alle Folgen · Komplette Playlist (Offizieller Pokémon Kanal)", count: "140 videos", epMin: 21 },
     episodes: [
       { id: "Lm3T9tesWaw", title: "Folge 1 · Der Anhänger, mit dem alles anfängt! (Teil 1)", min: 21 },
@@ -96,6 +96,108 @@ const ROADMAP = [
 
 const STORAGE_KEY = "dreaming-german-v1";
 const THEME_KEY = "dreaming-german-theme";
+const PROGRESS_KEY = "dreaming-german-progress-v1";
+const PLAYLIST_CACHE_KEY = "dreaming-german-playlists-v1";
+const TITLE_CACHE_KEY = "dreaming-german-titles-v1";
+
+// ————— YouTube IFrame API —————
+let ytApiPromise = null;
+function loadYT() {
+  if (!ytApiPromise) {
+    ytApiPromise = new Promise((resolve) => {
+      if (window.YT && window.YT.Player) return resolve(window.YT);
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(window.YT); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    });
+  }
+  return ytApiPromise;
+}
+
+// ————— Watch-position store: { videos: {id: {t, d}}, lists: {listId: {index, videoId}} } —————
+function readProgress() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PROGRESS_KEY)) || {};
+    return { videos: p.videos || {}, lists: p.lists || {} };
+  } catch (e) { return { videos: {}, lists: {} }; }
+}
+function writeVideoProgress(videoId, t, d, listId, listIndex) {
+  try {
+    const p = readProgress();
+    p.videos[videoId] = { t: Math.floor(t), d: Math.floor(d) };
+    if (listId) p.lists[listId] = { index: listIndex || 0, videoId };
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify(p));
+  } catch (e) { /* storage full or private mode */ }
+}
+
+// Fetch the video ids of a playlist by cueing it in a hidden IFrame API player.
+async function fetchPlaylistIds(listId) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(PLAYLIST_CACHE_KEY)) || {};
+    const hit = cache[listId];
+    if (hit && hit.ids && hit.ids.length && Date.now() - hit.at < 86400000) return hit.ids;
+  } catch (e) { /* ignore bad cache */ }
+  const YT = await loadYT();
+  return new Promise((resolve, reject) => {
+    const div = document.createElement("div");
+    div.style.cssText = "position:fixed;left:-9999px;top:0;width:2px;height:2px;";
+    document.body.appendChild(div);
+    let done = false, player = null, poll = null, timer = null;
+    const finish = (ids) => {
+      if (done) return;
+      done = true;
+      clearInterval(poll);
+      clearTimeout(timer);
+      setTimeout(() => { try { if (player) player.destroy(); } catch (e) {} div.remove(); }, 0);
+      if (ids && ids.length) {
+        try {
+          const cache = JSON.parse(localStorage.getItem(PLAYLIST_CACHE_KEY)) || {};
+          cache[listId] = { ids, at: Date.now() };
+          localStorage.setItem(PLAYLIST_CACHE_KEY, JSON.stringify(cache));
+        } catch (e) { /* cache is best-effort */ }
+        resolve(ids);
+      } else reject(new Error("playlist unavailable"));
+    };
+    timer = setTimeout(() => finish(null), 20000);
+    player = new YT.Player(div, {
+      host: "https://www.youtube-nocookie.com",
+      width: 2, height: 2,
+      playerVars: { listType: "playlist", list: listId },
+      events: { onError: () => finish(null) },
+    });
+    poll = setInterval(() => {
+      try {
+        const ids = player.getPlaylist();
+        if (ids && ids.length) finish(ids.slice());
+      } catch (e) { /* not ready yet */ }
+    }, 300);
+  });
+}
+
+// Episode titles via noembed (CORS-friendly oEmbed proxy); cached, fails soft.
+async function fetchTitle(videoId) {
+  let cache = {};
+  try { cache = JSON.parse(localStorage.getItem(TITLE_CACHE_KEY)) || {}; } catch (e) { /* ignore */ }
+  if (cache[videoId]) return cache[videoId];
+  try {
+    const r = await fetch(`https://noembed.com/embed?url=${encodeURIComponent("https://www.youtube.com/watch?v=" + videoId)}`);
+    const j = await r.json();
+    if (j && j.title) {
+      cache[videoId] = j.title;
+      try { localStorage.setItem(TITLE_CACHE_KEY, JSON.stringify(cache)); } catch (e) { /* best-effort */ }
+      return j.title;
+    }
+  } catch (e) { /* offline or blocked */ }
+  return null;
+}
+
+const fmtTime = (s) => {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  const h = Math.floor(m / 60);
+  return h ? `${h}:${String(m % 60).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+};
 
 function Shape({ level, size = 14, color }) {
   const c = color || LEVELS[level].color;
@@ -107,24 +209,99 @@ function Shape({ level, size = 14, color }) {
   return <span style={{ ...st, background: c, transform: "rotate(45deg) scale(0.85)" }} />;
 }
 
-function Player({ id, title, playlist, thumb }) {
-  const [playing, setPlaying] = useState(false);
-  const src = playlist
-    ? `https://www.youtube-nocookie.com/embed/videoseries?list=${playlist}&autoplay=1&rel=0`
-    : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`;
+// IFrame-API-backed player: saves the watch position every few seconds,
+// resumes where you left off, and reports finished videos.
+function ApiPlayer({ videoId, playlistId, index, onEnded }) {
+  const holder = useRef(null);
+  const endedRef = useRef(onEnded);
+  endedRef.current = onEnded;
+
+  useEffect(() => {
+    let player = null, interval = null, destroyed = false;
+    let lastVid = null, resumedFor = null;
+
+    const currentId = () => {
+      try { return (player.getVideoData() || {}).video_id || videoId || null; } catch (e) { return videoId || null; }
+    };
+    const saveNow = () => {
+      try {
+        const vid = currentId();
+        const d = player.getDuration();
+        if (vid && d > 0) {
+          let li = 0;
+          try { li = Math.max(0, player.getPlaylistIndex()); } catch (e) { /* no playlist */ }
+          writeVideoProgress(vid, player.getCurrentTime(), d, playlistId, li);
+        }
+      } catch (e) { /* player mid-teardown */ }
+    };
+    const maybeFinish = (vid) => {
+      const p = readProgress().videos[vid];
+      if (p && p.d > 60 && p.t >= p.d * 0.9 && endedRef.current) endedRef.current(vid, Math.round(p.d / 60));
+    };
+
+    loadYT().then((YT) => {
+      if (destroyed || !holder.current) return;
+      const inner = document.createElement("div");
+      holder.current.appendChild(inner);
+      player = new YT.Player(inner, {
+        host: "https://www.youtube-nocookie.com",
+        width: "100%", height: "100%",
+        ...(playlistId ? {} : { videoId }),
+        playerVars: {
+          autoplay: 1, rel: 0, playsinline: 1,
+          ...(playlistId ? { listType: "playlist", list: playlistId, index: index || 0 } : {}),
+        },
+        events: {
+          onStateChange: (e) => {
+            const vid = currentId();
+            if (vid && vid !== lastVid) {
+              if (lastVid) maybeFinish(lastVid); // playlist auto-advanced past a finished episode
+              lastVid = vid;
+            }
+            if (e.data === 1 && vid && resumedFor !== vid) {
+              resumedFor = vid;
+              const p = readProgress().videos[vid];
+              if (p && p.t > 20 && p.d > 0 && p.t < p.d - 20) {
+                try { player.seekTo(p.t, true); } catch (err) { /* ignore */ }
+              }
+            }
+            if (e.data === 2) saveNow(); // paused
+            if (e.data === 0) {          // ended
+              try {
+                const d = player.getDuration();
+                if (vid && d > 0) writeVideoProgress(vid, d, d, playlistId, 0);
+              } catch (err) { /* ignore */ }
+              if (vid) maybeFinish(vid);
+            }
+          },
+        },
+      });
+      interval = setInterval(() => {
+        try { if (player.getPlayerState() === 1) saveNow(); } catch (e) { /* not ready */ }
+      }, 4000);
+    });
+
+    return () => {
+      destroyed = true;
+      clearInterval(interval);
+      try { if (player) { saveNow(); player.destroy(); } } catch (e) { /* already gone */ }
+    };
+  }, [videoId, playlistId, index]);
+
+  return <div ref={holder} style={{ position: "absolute", inset: 0 }} />;
+}
+
+// Thumbnail with play button and a red "already started" bar, like YouTube's.
+function PlayerFrame({ id, playlist, thumb, title, now, onPlay, onEnded }) {
+  const prog = !now && id ? readProgress().videos[id] : null;
+  const pct = prog && prog.d > 0 ? Math.min(100, (prog.t / prog.d) * 100) : 0;
   return (
     <div style={{ position: "relative", paddingTop: "56.25%", background: INK }}>
-      {playing ? (
-        <iframe
-          src={src}
-          title={title}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
-        />
+      {now ? (
+        <ApiPlayer key={now.nonce || `${now.videoId || id || ""}-${now.index || 0}`} videoId={now.videoId || id} playlistId={playlist} index={now.index} onEnded={onEnded} />
       ) : (
         <button
-          onClick={() => setPlaying(true)}
+          onClick={onPlay}
           aria-label={`Play ${title}`}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, padding: 0, cursor: "pointer", background: "none" }}
         >
@@ -138,8 +315,184 @@ function Player({ id, title, playlist, thumb }) {
           <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 62, height: 62, background: RED, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 0 rgba(0,0,0,0.35)" }}>
             <span style={{ width: 0, height: 0, borderTop: "12px solid transparent", borderBottom: "12px solid transparent", borderLeft: `20px solid ${PAPER}`, marginLeft: 5 }} />
           </span>
+          {pct > 2 && (
+            <>
+              <span style={{ position: "absolute", left: 0, bottom: 0, height: 5, width: "100%", background: "rgba(255,255,255,0.3)" }} />
+              <span style={{ position: "absolute", left: 0, bottom: 0, height: 5, width: `${pct}%`, background: RED }} />
+              <span style={{ position: "absolute", left: 8, bottom: 12, background: "rgba(0,0,0,0.75)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "2px 6px" }}>
+                ▶ Weiter bei {fmtTime(prog.t)}
+              </span>
+            </>
+          )}
         </button>
       )}
+    </div>
+  );
+}
+
+// Expandable list of every video inside a playlist.
+function EpisodeList({ listId, epMin, T, display, watched, onPlay, onLog }) {
+  const [ids, setIds] = useState(null);
+  const [error, setError] = useState(false);
+  const [titles, setTitles] = useState({});
+  const [limit, setLimit] = useState(25);
+
+  useEffect(() => {
+    let alive = true;
+    fetchPlaylistIds(listId)
+      .then((v) => { if (alive) setIds(v); })
+      .catch(() => { if (alive) setError(true); });
+    return () => { alive = false; };
+  }, [listId]);
+
+  useEffect(() => {
+    if (!ids) return;
+    let alive = true;
+    const want = ids.slice(0, limit).filter((id) => titles[id] === undefined);
+    if (!want.length) return;
+    // Cached titles render instantly; each network fetch fills in as it resolves.
+    let cache = {};
+    try { cache = JSON.parse(localStorage.getItem(TITLE_CACHE_KEY)) || {}; } catch (e) { /* ignore */ }
+    const hits = want.filter((id) => cache[id]);
+    if (hits.length) setTitles((prev) => ({ ...prev, ...Object.fromEntries(hits.map((id) => [id, cache[id]])) }));
+    want.filter((id) => !cache[id]).forEach((id) => {
+      fetchTitle(id).then((t) => { if (alive && t) setTitles((prev) => ({ ...prev, [id]: t })); });
+    });
+    return () => { alive = false; };
+  }, [ids, limit]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (error) return <p style={{ fontSize: 13, opacity: 0.7, padding: "12px 16px", margin: 0 }}>Couldn't load the episode list — open the playlist on YouTube instead.</p>;
+  if (!ids) return <p style={{ fontSize: 13, opacity: 0.7, padding: "12px 16px", margin: 0 }}>Loading episodes…</p>;
+
+  const prog = readProgress().videos;
+  return (
+    <div style={{ borderTop: `2px solid ${T.ink}` }}>
+      <div style={{ maxHeight: 420, overflowY: "auto" }}>
+        {ids.slice(0, limit).map((id, i) => {
+          const p = prog[id];
+          const pct = p && p.d > 0 ? Math.min(100, (p.t / p.d) * 100) : 0;
+          const done = watched.includes(id);
+          return (
+            <div key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.ink}33` }}>
+              <button onClick={() => onPlay(i, id)} aria-label={`Play Folge ${i + 1}`}
+                style={{ position: "relative", width: 92, height: 52, flexShrink: 0, border: `1px solid ${T.ink}`, padding: 0, cursor: "pointer", background: INK, overflow: "hidden" }}>
+                <img src={`https://i.ytimg.com/vi/${id}/mqdefault.jpg`} alt="" loading="lazy"
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+                {pct > 2 && <span style={{ position: "absolute", left: 0, bottom: 0, height: 3, width: `${pct}%`, background: RED }} />}
+              </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                  <span style={{ opacity: 0.55, fontWeight: 800 }}>{i + 1} · </span>
+                  {titles[id] || `Folge ${i + 1}`}
+                </p>
+                {pct > 2 && <p style={{ margin: "2px 0 0", fontSize: 11, opacity: 0.6 }}>{done ? "✓ watched · " : ""}▶ {fmtTime(p.t)} / {fmtTime(p.d)}</p>}
+                {pct <= 2 && done && <p style={{ margin: "2px 0 0", fontSize: 11, color: T.green, fontWeight: 700 }}>✓ watched</p>}
+              </div>
+              <button onClick={() => onLog(id)} disabled={done} title={done ? "Already logged" : `Log ${epMin} min`}
+                style={{ ...display, flexShrink: 0, padding: "6px 10px", border: `2px solid ${T.ink}`, background: done ? T.green : T.bg, color: done ? "#fff" : T.ink, fontWeight: 800, fontSize: 12, cursor: done ? "default" : "pointer" }}>
+                ✓
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {limit < ids.length && (
+        <button onClick={() => setLimit(limit + 25)}
+          style={{ ...display, width: "100%", padding: "10px", border: 0, borderTop: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 800, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Mehr anzeigen ({ids.length - limit} weitere)
+        </button>
+      )}
+    </div>
+  );
+}
+
+// A playlist card (classic seasons + Horizonte): player, episode browser, log button.
+function PlaylistCard({ title, badge, count, playlist, thumb, epMin, borderPx = 2, shadow, T, display, watched, addMinutes, markWatched }) {
+  const [now, setNow] = useState(null);
+  const [open, setOpen] = useState(false);
+  const resume = readProgress().lists[playlist];
+  return (
+    <div style={{ border: `${borderPx}px solid ${T.ink}`, background: T.card, boxShadow: shadow }}>
+      <PlayerFrame
+        playlist={playlist}
+        thumb={thumb || (resume && resume.videoId)}
+        id={resume && resume.videoId}
+        title={title}
+        now={now}
+        onPlay={() => setNow({ index: resume ? resume.index : 0, videoId: resume && resume.videoId, nonce: Date.now() })}
+        onEnded={(vid, min) => markWatched({ id: vid, min })}
+      />
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+          <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, color: INK, padding: "3px 8px", border: `2px solid ${T.ink}` }}>{badge}</span>
+          <span style={{ fontSize: 12, opacity: 0.6 }}>{count}</span>
+        </div>
+        <h3 style={{ ...display, fontSize: 17, fontWeight: 800, margin: "0 0 12px", lineHeight: 1.25 }}>{title}</h3>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setOpen(!open)}
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: open ? T.ink : T.bg, color: open ? T.bg : T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            ☰ {open ? "Folgen ausblenden" : "Alle Folgen"}
+          </button>
+          <button onClick={() => addMinutes(epMin, title)}
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            + Log {epMin} min
+          </button>
+        </div>
+      </div>
+      {open && (
+        <EpisodeList
+          listId={playlist} epMin={epMin} T={T} display={display} watched={watched}
+          onPlay={(index, videoId) => setNow({ index, videoId, nonce: Date.now() })}
+          onLog={(id) => markWatched({ id, min: epMin })}
+        />
+      )}
+    </div>
+  );
+}
+
+// A single-video card with watch-position resume and auto-log on finish.
+function VideoCard({ v, watched, inList, T, display, levelColor, markWatched, toggleList }) {
+  const [now, setNow] = useState(null);
+  return (
+    <div style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${levelColor(v.level)}` }}>
+      <PlayerFrame id={v.id} title={v.title} now={now} onPlay={() => setNow({ nonce: Date.now() })} onEnded={() => markWatched(v)} />
+      <div style={{ padding: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <Shape level={v.level} color={levelColor(v.level)} />
+          <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{LEVELS[v.level].label}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.6 }}>{v.min} min</span>
+        </div>
+        <h3 style={{ ...display, fontSize: 18, fontWeight: 800, margin: "0 0 4px", lineHeight: 1.2 }}>{v.title}</h3>
+        <p style={{ fontSize: 13, margin: "0 0 4px", fontWeight: 600, color: T.blue }}>{v.channel}</p>
+        <p style={{ fontSize: 13, margin: "0 0 14px", lineHeight: 1.5, opacity: 0.8 }}>{v.desc}</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => markWatched(v)} disabled={watched}
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: watched ? T.green : T.bg, color: watched ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: watched ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            {watched ? "✓ Watched" : `Watched · log ${v.min} min`}
+          </button>
+          <button onClick={() => toggleList(v.id)}
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: inList ? YELLOW : T.bg, color: inList ? INK : T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            {inList ? "★ Saved" : "☆ Watch later"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Compact card for hand-picked episodes (Horizonte highlights).
+function EpisodeCard({ e, watched, T, display, markWatched, shadow }) {
+  const [now, setNow] = useState(null);
+  return (
+    <div style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: shadow }}>
+      <PlayerFrame id={e.id} title={e.title} now={now} onPlay={() => setNow({ nonce: Date.now() })} onEnded={() => markWatched({ id: e.id, min: e.min })} />
+      <div style={{ padding: 16 }}>
+        <h3 style={{ ...display, fontSize: 16, fontWeight: 800, margin: "0 0 10px", lineHeight: 1.3 }}>{e.title}</h3>
+        <button onClick={() => markWatched({ id: e.id, min: e.min })} disabled={watched}
+          style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: watched ? T.green : T.bg, color: watched ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: watched ? "default" : "pointer", textTransform: "uppercase" }}>
+          {watched ? "✓ Watched" : `Watched · log ${e.min} min`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -187,31 +540,39 @@ export default function DreamingGerman() {
       }
     } catch (e) { /* first visit — nothing saved yet */ }
     setLoaded(true);
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const save = (next) => {
-    setState(next);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch (e) { console.error("save failed", e); }
-  };
+  // Persist whatever the latest state is (player callbacks update it asynchronously).
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { console.error("save failed", e); }
+  }, [state, loaded]);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2500); };
 
   const addMinutes = (min, note) => {
-    const t = state.today.date === todayStr ? state.today.minutes : 0;
-    save({ ...state, minutes: state.minutes + min, today: { date: todayStr, minutes: t + min } });
+    setState((prev) => {
+      const t = prev.today.date === todayStr ? prev.today.minutes : 0;
+      return { ...prev, minutes: prev.minutes + min, today: { date: todayStr, minutes: t + min } };
+    });
     flash(`+${min} min logged${note ? " · " + note : ""}`);
   };
 
   const markWatched = (v) => {
-    if (state.watched.includes(v.id)) return;
-    const t = state.today.date === todayStr ? state.today.minutes : 0;
-    save({ ...state, watched: [...state.watched, v.id], minutes: state.minutes + v.min, today: { date: todayStr, minutes: t + v.min } });
-    flash(`+${v.min} min · marked as watched`);
+    setState((prev) => {
+      if (prev.watched.includes(v.id)) return prev;
+      const t = prev.today.date === todayStr ? prev.today.minutes : 0;
+      // flash from inside the updater would double-fire in StrictMode; safe here as plain reads
+      setTimeout(() => flash(`+${v.min} min · marked as watched`), 0);
+      return { ...prev, watched: [...prev.watched, v.id], minutes: prev.minutes + v.min, today: { date: todayStr, minutes: t + v.min } };
+    });
   };
 
   const toggleList = (id) => {
-    const inList = state.watchlist.includes(id);
-    save({ ...state, watchlist: inList ? state.watchlist.filter((x) => x !== id) : [...state.watchlist, id] });
+    setState((prev) => ({
+      ...prev,
+      watchlist: prev.watchlist.includes(id) ? prev.watchlist.filter((x) => x !== id) : [...prev.watchlist, id],
+    }));
   };
 
   const hours = state.minutes / 60;
@@ -234,32 +595,6 @@ export default function DreamingGerman() {
     fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
     boxShadow: active ? `4px 4px 0 ${color || YELLOW}` : "none",
   });
-
-  const Card = ({ v, watched }) => (
-    <div style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${levelColor(v.level)}` }}>
-      <Player id={v.id} title={v.title} />
-      <div style={{ padding: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Shape level={v.level} color={levelColor(v.level)} />
-          <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{LEVELS[v.level].label}</span>
-          <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.6 }}>{v.min} min</span>
-        </div>
-        <h3 style={{ ...display, fontSize: 18, fontWeight: 800, margin: "0 0 4px", lineHeight: 1.2 }}>{v.title}</h3>
-        <p style={{ fontSize: 13, margin: "0 0 4px", fontWeight: 600, color: T.blue }}>{v.channel}</p>
-        <p style={{ fontSize: 13, margin: "0 0 14px", lineHeight: 1.5, opacity: 0.8 }}>{v.desc}</p>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => markWatched(v)} disabled={watched}
-            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: watched ? T.green : T.bg, color: watched ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: watched ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            {watched ? "✓ Watched" : `Watched · log ${v.min} min`}
-          </button>
-          <button onClick={() => toggleList(v.id)}
-            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.watchlist.includes(v.id) ? YELLOW : T.bg, color: state.watchlist.includes(v.id) ? INK : T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-            {state.watchlist.includes(v.id) ? "★ Saved" : "☆ Watch later"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, color: T.ink, fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif" }}>
@@ -325,7 +660,10 @@ export default function DreamingGerman() {
               <p style={{ fontSize: 14, opacity: 0.7 }}>Nothing saved yet — tap “Watch later” on any video to build your list.</p>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
-              {shown.map((v) => <Card key={v.id} v={v} watched={state.watched.includes(v.id)} />)}
+              {shown.map((v) => (
+                <VideoCard key={v.id} v={v} watched={state.watched.includes(v.id)} inList={state.watchlist.includes(v.id)}
+                  T={T} display={display} levelColor={levelColor} markWatched={markWatched} toggleList={toggleList} />
+              ))}
             </div>
           </>
         )}
@@ -340,24 +678,13 @@ export default function DreamingGerman() {
               </span>
             </div>
             <p style={{ fontSize: 13, opacity: 0.8, maxWidth: 640, margin: "0 0 20px", lineHeight: 1.5 }}>
-              All nine classic seasons, official and free from the Pokémon TV channel. The uploads carry multiple audio tracks — open the player's ⚙ settings and switch the audio track to <strong>Deutsch</strong> (available on most seasons). Ash's adventures make native-speed German followable thanks to the visual storytelling.
+              All nine classic seasons, official and free from the Pokémon TV channel. The uploads carry multiple audio tracks — open the player's ⚙ settings and switch the audio track to <strong>Deutsch</strong> (available on most seasons). Tap <strong>☰ Alle Folgen</strong> to browse every episode; your spot in each video is saved automatically.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
               {CLASSIC_SEASONS.map((s) => (
-                <div key={s.n} style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${YELLOW}` }}>
-                  <Player playlist={s.playlist} thumb={s.thumb} title={`Pokémon Staffel ${s.n} · ${s.title}`} />
-                  <div style={{ padding: 16 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                      <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, color: INK, padding: "3px 8px", border: `2px solid ${T.ink}` }}>Staffel {s.n}</span>
-                      <span style={{ fontSize: 12, opacity: 0.6 }}>{s.count}</span>
-                    </div>
-                    <h3 style={{ ...display, fontSize: 17, fontWeight: 800, margin: "0 0 12px", lineHeight: 1.25 }}>{s.title}</h3>
-                    <button onClick={() => addMinutes(21, `Pokémon Staffel ${s.n}`)}
-                      style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                      + Log one episode (21 min)
-                    </button>
-                  </div>
-                </div>
+                <PlaylistCard key={s.n} title={s.title} badge={`Staffel ${s.n}`} count={s.count} playlist={s.playlist} thumb={s.thumb}
+                  epMin={21} shadow={`6px 6px 0 ${YELLOW}`} T={T} display={display} watched={state.watched}
+                  addMinutes={addMinutes} markWatched={markWatched} />
               ))}
             </div>
           </section>
@@ -372,34 +699,16 @@ export default function DreamingGerman() {
             </div>
             <p style={{ fontSize: 13, opacity: 0.8, maxWidth: 640, margin: "0 0 20px", lineHeight: 1.5 }}>{s.note}</p>
             {s.playlist && (
-              <div style={{ border: `3px solid ${T.ink}`, background: T.card, boxShadow: `8px 8px 0 ${RED}`, marginBottom: 24, maxWidth: 720 }}>
-                <Player playlist={s.playlist.id} thumb={s.playlist.thumb} title={s.playlist.title} />
-                <div style={{ padding: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, color: INK, padding: "3px 8px", border: `2px solid ${T.ink}` }}>Ganze Staffel</span>
-                    <span style={{ fontSize: 12, opacity: 0.6 }}>{s.playlist.count}</span>
-                  </div>
-                  <h3 style={{ ...display, fontSize: 18, fontWeight: 800, margin: "0 0 12px", lineHeight: 1.25 }}>{s.playlist.title}</h3>
-                  <button onClick={() => addMinutes(s.playlist.epMin, "Pokémon episode")}
-                    style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    + Log one episode ({s.playlist.epMin} min)
-                  </button>
-                  <p style={{ fontSize: 11, opacity: 0.55, margin: "8px 0 0" }}>Tap once per episode you finish — you can log as many as you watch.</p>
-                </div>
+              <div style={{ marginBottom: 24, maxWidth: 720 }}>
+                <PlaylistCard title={s.playlist.title} badge="Ganze Staffel" count={s.playlist.count} playlist={s.playlist.id} thumb={s.playlist.thumb}
+                  epMin={s.playlist.epMin} borderPx={3} shadow={`8px 8px 0 ${RED}`} T={T} display={display} watched={state.watched}
+                  addMinutes={addMinutes} markWatched={markWatched} />
               </div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
               {s.episodes.map((e) => (
-                <div key={e.id} style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${BLUE}` }}>
-                  <Player id={e.id} title={e.title} />
-                  <div style={{ padding: 16 }}>
-                    <h3 style={{ ...display, fontSize: 16, fontWeight: 800, margin: "0 0 10px", lineHeight: 1.3 }}>{e.title}</h3>
-                    <button onClick={() => markWatched({ id: e.id, min: e.min })} disabled={state.watched.includes(e.id)}
-                      style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.watched.includes(e.id) ? T.green : T.bg, color: state.watched.includes(e.id) ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: state.watched.includes(e.id) ? "default" : "pointer", textTransform: "uppercase" }}>
-                      {state.watched.includes(e.id) ? "✓ Watched" : `Watched · log ${e.min} min`}
-                    </button>
-                  </div>
-                </div>
+                <EpisodeCard key={e.id} e={e} watched={state.watched.includes(e.id)} T={T} display={display}
+                  markWatched={markWatched} shadow={`6px 6px 0 ${BLUE}`} />
               ))}
             </div>
           </section>
@@ -431,7 +740,7 @@ export default function DreamingGerman() {
                 <h3 style={{ ...display, fontSize: 14, fontWeight: 800, textTransform: "uppercase", margin: "0 0 10px" }}>Daily goal</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {[15, 30, 60, 120].map((g) => (
-                    <button key={g} onClick={() => save({ ...state, dailyGoal: g })}
+                    <button key={g} onClick={() => setState((prev) => ({ ...prev, dailyGoal: g }))}
                       style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.dailyGoal === g ? T.ink : T.bg, color: state.dailyGoal === g ? T.bg : T.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                       {g} min
                     </button>
