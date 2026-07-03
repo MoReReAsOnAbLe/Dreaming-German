@@ -8,6 +8,11 @@ const RED = "#E0311B";    // vermilion
 const YELLOW = "#F2B707"; // signal
 const GREEN = "#1E7A4C";
 
+const THEMES = {
+  light: { bg: PAPER, card: "#fff", ink: INK, blue: BLUE, green: GREEN },
+  dark: { bg: "#111113", card: "#1C1C21", ink: "#F2EFE7", blue: "#8FA0FF", green: "#3FA875" },
+};
+
 const LEVELS = {
   superbeginner: { label: "Superbeginner", color: YELLOW, shape: "circle", blurb: "Very slow speech, drawings & gestures. Start here with zero German." },
   beginner: { label: "Beginner", color: RED, shape: "triangle", blurb: "Slow, clear German about everyday topics. Simple sentences." },
@@ -69,9 +74,10 @@ const ROADMAP = [
 ];
 
 const STORAGE_KEY = "dreaming-german-v1";
+const THEME_KEY = "dreaming-german-theme";
 
-function Shape({ level, size = 14 }) {
-  const c = LEVELS[level].color;
+function Shape({ level, size = 14, color }) {
+  const c = color || LEVELS[level].color;
   const s = LEVELS[level].shape;
   const st = { width: size, height: size, display: "inline-block", flexShrink: 0 };
   if (s === "circle") return <span style={{ ...st, background: c, borderRadius: "50%" }} />;
@@ -123,6 +129,28 @@ export default function DreamingGerman() {
   const [outsideMin, setOutsideMin] = useState("");
   const [outsideWhat, setOutsideWhat] = useState("");
   const [toast, setToast] = useState("");
+  const [dark, setDark] = useState(() => {
+    try {
+      const saved = localStorage.getItem(THEME_KEY);
+      if (saved) return saved === "dark";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    } catch (e) { return false; }
+  });
+
+  const T = dark ? THEMES.dark : THEMES.light;
+  // Advanced level's ink-colored shape would vanish on a dark background
+  const levelColor = (lvl) => (lvl === "advanced" ? T.ink : LEVELS[lvl].color);
+
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    try { localStorage.setItem(THEME_KEY, next ? "dark" : "light"); } catch (e) { /* private mode */ }
+  };
+
+  useEffect(() => {
+    document.body.style.background = T.bg;
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  }, [dark, T.bg]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -179,30 +207,30 @@ export default function DreamingGerman() {
   const display = { fontFamily: "Futura, 'Century Gothic', 'Trebuchet MS', 'Avenir Next', sans-serif" };
   const chip = (active, color) => ({
     ...display, display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 14px",
-    border: `2px solid ${INK}`, background: active ? INK : PAPER, color: active ? PAPER : INK,
+    border: `2px solid ${T.ink}`, background: active ? T.ink : T.bg, color: active ? T.bg : T.ink,
     fontWeight: 700, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
     boxShadow: active ? `4px 4px 0 ${color || YELLOW}` : "none",
   });
 
   const Card = ({ v, watched }) => (
-    <div style={{ border: `2px solid ${INK}`, background: "#fff", boxShadow: `6px 6px 0 ${LEVELS[v.level].color}` }}>
+    <div style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${levelColor(v.level)}` }}>
       <Player id={v.id} title={v.title} />
       <div style={{ padding: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Shape level={v.level} />
+          <Shape level={v.level} color={levelColor(v.level)} />
           <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{LEVELS[v.level].label}</span>
           <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.6 }}>{v.min} min</span>
         </div>
         <h3 style={{ ...display, fontSize: 18, fontWeight: 800, margin: "0 0 4px", lineHeight: 1.2 }}>{v.title}</h3>
-        <p style={{ fontSize: 13, margin: "0 0 4px", fontWeight: 600, color: BLUE }}>{v.channel}</p>
+        <p style={{ fontSize: 13, margin: "0 0 4px", fontWeight: 600, color: T.blue }}>{v.channel}</p>
         <p style={{ fontSize: 13, margin: "0 0 14px", lineHeight: 1.5, opacity: 0.8 }}>{v.desc}</p>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button onClick={() => markWatched(v)} disabled={watched}
-            style={{ ...display, padding: "8px 12px", border: `2px solid ${INK}`, background: watched ? GREEN : PAPER, color: watched ? "#fff" : INK, fontWeight: 700, fontSize: 12, cursor: watched ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: watched ? T.green : T.bg, color: watched ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: watched ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
             {watched ? "✓ Watched" : `Watched · log ${v.min} min`}
           </button>
           <button onClick={() => toggleList(v.id)}
-            style={{ ...display, padding: "8px 12px", border: `2px solid ${INK}`, background: state.watchlist.includes(v.id) ? YELLOW : PAPER, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.watchlist.includes(v.id) ? YELLOW : T.bg, color: state.watchlist.includes(v.id) ? INK : T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
             {state.watchlist.includes(v.id) ? "★ Saved" : "☆ Watch later"}
           </button>
         </div>
@@ -211,9 +239,9 @@ export default function DreamingGerman() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: PAPER, color: INK, fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: T.bg, color: T.ink, fontFamily: "'Avenir Next', 'Segoe UI', system-ui, sans-serif" }}>
       {/* Header */}
-      <header style={{ borderBottom: `3px solid ${INK}`, padding: "20px 16px 0", maxWidth: 1100, margin: "0 auto" }}>
+      <header style={{ borderBottom: `3px solid ${T.ink}`, padding: "20px 16px 0", maxWidth: 1100, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
             <span style={{ width: 22, height: 22, background: YELLOW, borderRadius: "50%" }} />
@@ -221,8 +249,12 @@ export default function DreamingGerman() {
             <span style={{ width: 22, height: 22, background: BLUE }} />
           </div>
           <h1 style={{ ...display, fontSize: "clamp(26px, 6vw, 44px)", fontWeight: 900, margin: 0, letterSpacing: "-0.02em", textTransform: "uppercase" }}>
-            Dreaming <span style={{ color: BLUE }}>German</span>
+            Dreaming <span style={{ color: T.blue }}>German</span>
           </h1>
+          <button onClick={toggleTheme} aria-label={dark ? "Switch to light mode" : "Switch to dark mode"} title={dark ? "Light mode" : "Dark mode"}
+            style={{ ...display, marginLeft: "auto", padding: "8px 14px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 800, fontSize: 13, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em", boxShadow: `3px 3px 0 ${dark ? YELLOW : INK}` }}>
+            {dark ? "☀ Hell" : "● Dunkel"}
+          </button>
         </div>
         <p style={{ margin: "6px 0 16px", fontSize: 14, opacity: 0.75, maxWidth: 560 }}>
           Learn German the way Dreaming Spanish teaches Spanish: watch comprehensible videos at your level, rack up input hours, and let your brain do the grammar.
@@ -230,7 +262,7 @@ export default function DreamingGerman() {
         <nav style={{ display: "flex", gap: 0 }}>
           {[["videos", "Videos"], ["series", "Serien"], ["progress", "Fortschritt"]].map(([k, label]) => (
             <button key={k} onClick={() => setTab(k)}
-              style={{ ...display, padding: "10px 18px", fontSize: 14, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", cursor: "pointer", border: `2px solid ${INK}`, borderBottom: "none", marginRight: -2, background: tab === k ? INK : "#fff", color: tab === k ? PAPER : INK }}>
+              style={{ ...display, padding: "10px 18px", fontSize: 14, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", cursor: "pointer", border: `2px solid ${T.ink}`, borderBottom: "none", marginRight: -2, background: tab === k ? T.ink : T.card, color: tab === k ? T.bg : T.ink }}>
               {label}
             </button>
           ))}
@@ -239,16 +271,16 @@ export default function DreamingGerman() {
 
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 16px 60px" }}>
         {/* Daily goal strip — always visible */}
-        <div style={{ border: `2px solid ${INK}`, background: "#fff", padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+        <div style={{ border: `2px solid ${T.ink}`, background: T.card, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <span style={{ ...display, fontWeight: 800, fontSize: 13, textTransform: "uppercase", letterSpacing: "0.06em" }}>Today</span>
-          <div style={{ flex: 1, minWidth: 140, height: 14, border: `2px solid ${INK}`, background: PAPER }}>
-            <div style={{ width: `${goalPct}%`, height: "100%", background: goalPct >= 100 ? GREEN : YELLOW, transition: "width .4s" }} />
+          <div style={{ flex: 1, minWidth: 140, height: 14, border: `2px solid ${T.ink}`, background: T.bg }}>
+            <div style={{ width: `${goalPct}%`, height: "100%", background: goalPct >= 100 ? T.green : YELLOW, transition: "width .4s" }} />
           </div>
           <span style={{ fontSize: 13, fontWeight: 700 }}>{state.today.minutes} / {state.dailyGoal} min {goalPct >= 100 && "· Goal reached! 🎉"}</span>
         </div>
 
         {toast && (
-          <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: INK, color: PAPER, padding: "10px 18px", fontWeight: 700, fontSize: 13, zIndex: 50, boxShadow: `4px 4px 0 ${YELLOW}` }}>{toast}</div>
+          <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: T.ink, color: T.bg, padding: "10px 18px", fontWeight: 700, fontSize: 13, zIndex: 50, boxShadow: `4px 4px 0 ${YELLOW}` }}>{toast}</div>
         )}
 
         {/* ————— VIDEOS ————— */}
@@ -257,8 +289,8 @@ export default function DreamingGerman() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
               <button style={chip(filter === "all")} onClick={() => setFilter("all")}>All levels</button>
               {Object.entries(LEVELS).map(([k, l]) => (
-                <button key={k} style={chip(filter === k, l.color)} onClick={() => setFilter(k)}>
-                  <Shape level={k} size={12} /> {l.label}
+                <button key={k} style={chip(filter === k, levelColor(k))} onClick={() => setFilter(k)}>
+                  <Shape level={k} size={12} color={filter === k ? (k === "advanced" ? T.bg : l.color) : levelColor(k)} /> {l.label}
                 </button>
               ))}
               <button style={chip(filter === "watchlist", YELLOW)} onClick={() => setFilter("watchlist")}>★ Watchlist</button>
@@ -280,22 +312,22 @@ export default function DreamingGerman() {
           <section key={s.name} style={{ marginBottom: 44 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
               <h2 style={{ ...display, fontSize: 26, fontWeight: 900, margin: 0, textTransform: "uppercase" }}>{s.name}</h2>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `2px solid ${INK}`, padding: "4px 10px", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", background: "#fff" }}>
-                <Shape level={s.level} size={11} /> {LEVELS[s.level].label}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `2px solid ${T.ink}`, padding: "4px 10px", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", background: T.card }}>
+                <Shape level={s.level} size={11} color={levelColor(s.level)} /> {LEVELS[s.level].label}
               </span>
             </div>
             <p style={{ fontSize: 13, opacity: 0.8, maxWidth: 640, margin: "0 0 20px", lineHeight: 1.5 }}>{s.note}</p>
             {s.playlist && (
-              <div style={{ border: `3px solid ${INK}`, background: "#fff", boxShadow: `8px 8px 0 ${RED}`, marginBottom: 24, maxWidth: 720 }}>
+              <div style={{ border: `3px solid ${T.ink}`, background: T.card, boxShadow: `8px 8px 0 ${RED}`, marginBottom: 24, maxWidth: 720 }}>
                 <Player playlist={s.playlist.id} thumb={s.playlist.thumb} title={s.playlist.title} />
                 <div style={{ padding: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, padding: "3px 8px", border: `2px solid ${INK}` }}>Ganze Staffel</span>
+                    <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, color: INK, padding: "3px 8px", border: `2px solid ${T.ink}` }}>Ganze Staffel</span>
                     <span style={{ fontSize: 12, opacity: 0.6 }}>{s.playlist.count}</span>
                   </div>
                   <h3 style={{ ...display, fontSize: 18, fontWeight: 800, margin: "0 0 12px", lineHeight: 1.25 }}>{s.playlist.title}</h3>
                   <button onClick={() => addMinutes(s.playlist.epMin, "Pokémon episode")}
-                    style={{ ...display, padding: "8px 12px", border: `2px solid ${INK}`, background: PAPER, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                    style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                     + Log one episode ({s.playlist.epMin} min)
                   </button>
                   <p style={{ fontSize: 11, opacity: 0.55, margin: "8px 0 0" }}>Tap once per episode you finish — you can log as many as you watch.</p>
@@ -304,12 +336,12 @@ export default function DreamingGerman() {
             )}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
               {s.episodes.map((e) => (
-                <div key={e.id} style={{ border: `2px solid ${INK}`, background: "#fff", boxShadow: `6px 6px 0 ${BLUE}` }}>
+                <div key={e.id} style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${BLUE}` }}>
                   <Player id={e.id} title={e.title} />
                   <div style={{ padding: 16 }}>
                     <h3 style={{ ...display, fontSize: 16, fontWeight: 800, margin: "0 0 10px", lineHeight: 1.3 }}>{e.title}</h3>
                     <button onClick={() => markWatched({ id: e.id, min: e.min })} disabled={state.watched.includes(e.id)}
-                      style={{ ...display, padding: "8px 12px", border: `2px solid ${INK}`, background: state.watched.includes(e.id) ? GREEN : PAPER, color: state.watched.includes(e.id) ? "#fff" : INK, fontWeight: 700, fontSize: 12, cursor: state.watched.includes(e.id) ? "default" : "pointer", textTransform: "uppercase" }}>
+                      style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.watched.includes(e.id) ? T.green : T.bg, color: state.watched.includes(e.id) ? "#fff" : T.ink, fontWeight: 700, fontSize: 12, cursor: state.watched.includes(e.id) ? "default" : "pointer", textTransform: "uppercase" }}>
                       {state.watched.includes(e.id) ? "✓ Watched" : `Watched · log ${e.min} min`}
                     </button>
                   </div>
@@ -322,7 +354,7 @@ export default function DreamingGerman() {
         {/* ————— PROGRESS ————— */}
         {tab === "progress" && (
           <div style={{ maxWidth: 720 }}>
-            <div style={{ border: `2px solid ${INK}`, background: "#fff", padding: 20, boxShadow: `8px 8px 0 ${YELLOW}`, marginBottom: 24 }}>
+            <div style={{ border: `2px solid ${T.ink}`, background: T.card, padding: 20, boxShadow: `8px 8px 0 ${YELLOW}`, marginBottom: 24 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
                 <span style={{ ...display, fontSize: 56, fontWeight: 900, lineHeight: 1 }}>{hours.toFixed(1)}</span>
                 <span style={{ ...display, fontSize: 16, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>hours of German input</span>
@@ -331,8 +363,8 @@ export default function DreamingGerman() {
               <p style={{ margin: "0 0 12px", fontSize: 13, opacity: 0.75 }}>{current.desc}</p>
               {next && (
                 <>
-                  <div style={{ height: 18, border: `2px solid ${INK}`, background: PAPER }}>
-                    <div style={{ width: `${pctToNext}%`, height: "100%", background: BLUE, transition: "width .4s" }} />
+                  <div style={{ height: 18, border: `2px solid ${T.ink}`, background: T.bg }}>
+                    <div style={{ width: `${pctToNext}%`, height: "100%", background: T.blue, transition: "width .4s" }} />
                   </div>
                   <p style={{ fontSize: 12, margin: "6px 0 0", opacity: 0.75 }}>{(next.hours - hours).toFixed(1)} hours to Level {next.lvl} ({next.hours}h)</p>
                 </>
@@ -341,27 +373,27 @@ export default function DreamingGerman() {
 
             {/* Daily goal + outside hours */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20, marginBottom: 28 }}>
-              <div style={{ border: `2px solid ${INK}`, background: "#fff", padding: 16 }}>
+              <div style={{ border: `2px solid ${T.ink}`, background: T.card, padding: 16 }}>
                 <h3 style={{ ...display, fontSize: 14, fontWeight: 800, textTransform: "uppercase", margin: "0 0 10px" }}>Daily goal</h3>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {[15, 30, 60, 120].map((g) => (
                     <button key={g} onClick={() => save({ ...state, dailyGoal: g })}
-                      style={{ ...display, padding: "8px 12px", border: `2px solid ${INK}`, background: state.dailyGoal === g ? INK : PAPER, color: state.dailyGoal === g ? PAPER : INK, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                      style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: state.dailyGoal === g ? T.ink : T.bg, color: state.dailyGoal === g ? T.bg : T.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                       {g} min
                     </button>
                   ))}
                 </div>
               </div>
-              <div style={{ border: `2px solid ${INK}`, background: "#fff", padding: 16 }}>
+              <div style={{ border: `2px solid ${T.ink}`, background: T.card, padding: 16 }}>
                 <h3 style={{ ...display, fontSize: 14, fontWeight: 800, textTransform: "uppercase", margin: "0 0 10px" }}>Log outside hours</h3>
                 <p style={{ fontSize: 12, opacity: 0.7, margin: "0 0 10px" }}>Watched German Netflix, a podcast, or YouTube elsewhere? It counts.</p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <input type="number" min="1" placeholder="min" value={outsideMin} onChange={(e) => setOutsideMin(e.target.value)}
-                    style={{ width: 70, padding: "8px", border: `2px solid ${INK}`, background: PAPER, fontSize: 13, fontWeight: 700 }} />
+                    style={{ width: 70, padding: "8px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontSize: 13, fontWeight: 700 }} />
                   <input type="text" placeholder="what did you watch?" value={outsideWhat} onChange={(e) => setOutsideWhat(e.target.value)}
-                    style={{ flex: 1, minWidth: 120, padding: "8px", border: `2px solid ${INK}`, background: PAPER, fontSize: 13 }} />
+                    style={{ flex: 1, minWidth: 120, padding: "8px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontSize: 13 }} />
                   <button onClick={() => { const m = parseInt(outsideMin, 10); if (m > 0) { addMinutes(m, outsideWhat || "outside input"); setOutsideMin(""); setOutsideWhat(""); } }}
-                    style={{ ...display, padding: "8px 14px", border: `2px solid ${INK}`, background: RED, color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
+                    style={{ ...display, padding: "8px 14px", border: `2px solid ${T.ink}`, background: RED, color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
                     Add
                   </button>
                 </div>
@@ -373,13 +405,13 @@ export default function DreamingGerman() {
             {ROADMAP.map((r) => {
               const reached = hours >= r.hours;
               return (
-                <div key={r.lvl} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 14px", border: `2px solid ${INK}`, marginBottom: -2, background: reached ? "#fff" : PAPER, opacity: reached ? 1 : 0.65 }}>
-                  <span style={{ ...display, fontSize: 20, fontWeight: 900, width: 34, color: reached ? BLUE : INK }}>{r.lvl}</span>
+                <div key={r.lvl} style={{ display: "flex", gap: 14, alignItems: "flex-start", padding: "12px 14px", border: `2px solid ${T.ink}`, marginBottom: -2, background: reached ? T.card : T.bg, opacity: reached ? 1 : 0.65 }}>
+                  <span style={{ ...display, fontSize: 20, fontWeight: 900, width: 34, color: reached ? T.blue : T.ink }}>{r.lvl}</span>
                   <div style={{ flex: 1 }}>
                     <p style={{ margin: 0, fontWeight: 800, fontSize: 14 }}>{r.name} <span style={{ fontWeight: 600, opacity: 0.6 }}>· {r.hours}h</span></p>
                     <p style={{ margin: "2px 0 0", fontSize: 13, opacity: 0.8 }}>{r.desc}</p>
                   </div>
-                  {reached && <span style={{ color: GREEN, fontWeight: 900, fontSize: 18 }}>✓</span>}
+                  {reached && <span style={{ color: T.green, fontWeight: 900, fontSize: 18 }}>✓</span>}
                 </div>
               );
             })}
