@@ -30,13 +30,34 @@ const VIDEOS = [
   // Beginner
   { id: "r94aqLUO0wo", title: "Sich vorstellen", channel: "Super Easy German", level: "beginner", min: 5, desc: "The first Super Easy German episode: introductions on the street, slowly." },
   { id: "Ep3zb15gnUM", title: "Comprehensible Input A1–A2", channel: "Chill German", level: "beginner", min: 15, desc: "Relaxed beginner German with German subtitles throughout." },
+  { id: "4-eDoThe6qo", title: "Nicos Weg — Der Film (A1)", channel: "DW Deutsch lernen", level: "beginner", min: 90, desc: "A feature-length learner film from Deutsche Welle: Nico arrives in Germany with no German. Subtitles available." },
+  { id: "meChQ0YaqPQ", title: "Peppa Wutz · Schwimmen mit Schorsch (ganze Folge)", channel: "Peppa Pig Deutsch", level: "beginner", min: 25, desc: "Kids' cartoon with simple sentences and total visual support — classic easy input." },
   // Intermediate
   { id: "cGQZ8lTHn1M", title: "Was macht dich sympathisch? (Straßeninterview)", channel: "Easy German", level: "intermediate", min: 12, desc: "Real Berliners answer at natural speed — dual German/English subtitles help you follow." },
   { id: "Lfoai_nP7lc", title: "Wie wichtig ist dir Geld? (Straßeninterview)", channel: "Easy German", level: "intermediate", min: 12, desc: "Street interviews about money — authentic everyday German with subtitles." },
+  { id: "3iV2WK1-IV8", title: "Learn German with Street Interviews (Dresden)", channel: "Easy German", level: "intermediate", min: 12, desc: "Street interviews from Dresden — everyday spoken German with dual subtitles." },
+  { id: "Lg5P2w_Ro1c", title: "Nicos Weg — Der Film (A2)", channel: "DW Deutsch lernen", level: "intermediate", min: 90, desc: "The A2 sequel film: everyday life in Germany in clear, natural German with subtitles." },
+  { id: "LkufozluseI", title: "Nicos Weg — Der Film (B1)", channel: "DW Deutsch lernen", level: "intermediate", min: 90, desc: "The B1 finale: faster, longer conversations — a bridge toward native content." },
+  { id: "23rU7Gm_5d8", title: "Wie heizt man heute? · Sachgeschichte", channel: "Die Maus (WDR)", level: "intermediate", min: 8, desc: "Germany's beloved kids' show explains things clearly — spoken plainly with strong visuals." },
   // Advanced
+  { id: "3z0gnXgK8Do", title: "Corona geht gerade erst los", channel: "maiLab", level: "advanced", min: 20, desc: "Germany's most-watched YouTube video of 2020 — dense, fast science journalism by Mai Thi Nguyen-Kim." },
   { id: "VOYuMywDnXI", title: "Können Schwarze Löcher das Universum löschen?", channel: "Dinge Erklärt – Kurzgesagt", level: "advanced", min: 8, desc: "Science at native speed — the information paradox, beautifully animated." },
   { id: "LeX1ALuxcwI", title: "Das Schwarze Loch, das Galaxien killt", channel: "Dinge Erklärt – Kurzgesagt", level: "advanced", min: 10, desc: "Quasars explained in fast, technical, native German." },
   { id: "EzXKlg0EmN8", title: "Kann man ein Schwarzes Loch zerstören?", channel: "Dinge Erklärt – Kurzgesagt", level: "advanced", min: 9, desc: "Advanced vocabulary, native narration speed, German subtitles available." },
+];
+
+// Official Pokémon TV channel season playlists. The player's ⚙ settings let you
+// switch the audio track to Deutsch on episodes that carry the German dub.
+const CLASSIC_SEASONS = [
+  { n: 1, title: "Indigo League", playlist: "PLRcHmntfmJ8CnSmj4C284-a1euH518aQa", thumb: "Zyt2GKb6qWw", count: "52 videos" },
+  { n: 2, title: "Adventures in the Orange Islands", playlist: "PLRcHmntfmJ8AtnKq7EHNIQBUNTs85bqwS", count: "60 videos" },
+  { n: 3, title: "The Johto Journeys", playlist: "PLRcHmntfmJ8DB8wgMrUZwf3JGkLM17yeL", thumb: "EaOMsueW9v0", count: "41 videos" },
+  { n: 4, title: "Johto League Champions", playlist: "PLRcHmntfmJ8A7vV0RYnAu0farLTV_T1i2", count: "52 videos" },
+  { n: 5, title: "Master Quest", playlist: "PLRcHmntfmJ8BNWmL3MICuc1Oh5Mxf2qEh", thumb: "dHPTV4AHUyc", count: "64 videos" },
+  { n: 6, title: "Pokémon Advanced", playlist: "PLRcHmntfmJ8AYULKvzhleQPgPRinNDpc0", count: "40 videos" },
+  { n: 7, title: "Advanced Challenge", playlist: "PLRcHmntfmJ8BWeT4kzalbhx1r43bJv7pI", thumb: "99HJRv6TDvE", count: "52 videos" },
+  { n: 8, title: "Advanced Battle", playlist: "PLRcHmntfmJ8BdccTC3w86qIBdUjNDfPGV", count: "52 videos" },
+  { n: 9, title: "Battle Frontier", playlist: "PLRcHmntfmJ8DzeYoWwk7RsAbl2w-sg0zR", count: "33 videos" },
 ];
 
 const SERIES = [
@@ -107,11 +128,13 @@ function Player({ id, title, playlist, thumb }) {
           aria-label={`Play ${title}`}
           style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0, padding: 0, cursor: "pointer", background: "none" }}
         >
-          <img
-            src={`https://i.ytimg.com/vi/${thumb || id}/hqdefault.jpg`}
-            alt=""
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }}
-          />
+          {(thumb || id) && (
+            <img
+              src={`https://i.ytimg.com/vi/${thumb || id}/hqdefault.jpg`}
+              alt=""
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", opacity: 0.9 }}
+            />
+          )}
           <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 62, height: 62, background: RED, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 0 rgba(0,0,0,0.35)" }}>
             <span style={{ width: 0, height: 0, borderTop: "12px solid transparent", borderBottom: "12px solid transparent", borderLeft: `20px solid ${PAPER}`, marginLeft: 5 }} />
           </span>
@@ -308,6 +331,37 @@ export default function DreamingGerman() {
         )}
 
         {/* ————— SERIES ————— */}
+        {tab === "series" && (
+          <section style={{ marginBottom: 44 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+              <h2 style={{ ...display, fontSize: 26, fontWeight: 900, margin: 0, textTransform: "uppercase" }}>Pokémon · Die klassischen Staffeln</h2>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `2px solid ${T.ink}`, padding: "4px 10px", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", background: T.card }}>
+                <Shape level="intermediate" size={11} /> {LEVELS.intermediate.label}
+              </span>
+            </div>
+            <p style={{ fontSize: 13, opacity: 0.8, maxWidth: 640, margin: "0 0 20px", lineHeight: 1.5 }}>
+              All nine classic seasons, official and free from the Pokémon TV channel. The uploads carry multiple audio tracks — open the player's ⚙ settings and switch the audio track to <strong>Deutsch</strong> (available on most seasons). Ash's adventures make native-speed German followable thanks to the visual storytelling.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
+              {CLASSIC_SEASONS.map((s) => (
+                <div key={s.n} style={{ border: `2px solid ${T.ink}`, background: T.card, boxShadow: `6px 6px 0 ${YELLOW}` }}>
+                  <Player playlist={s.playlist} thumb={s.thumb} title={`Pokémon Staffel ${s.n} · ${s.title}`} />
+                  <div style={{ padding: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <span style={{ ...display, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", background: YELLOW, color: INK, padding: "3px 8px", border: `2px solid ${T.ink}` }}>Staffel {s.n}</span>
+                      <span style={{ fontSize: 12, opacity: 0.6 }}>{s.count}</span>
+                    </div>
+                    <h3 style={{ ...display, fontSize: 17, fontWeight: 800, margin: "0 0 12px", lineHeight: 1.25 }}>{s.title}</h3>
+                    <button onClick={() => addMinutes(21, `Pokémon Staffel ${s.n}`)}
+                      style={{ ...display, padding: "8px 12px", border: `2px solid ${T.ink}`, background: T.bg, color: T.ink, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                      + Log one episode (21 min)
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {tab === "series" && SERIES.map((s) => (
           <section key={s.name} style={{ marginBottom: 44 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
