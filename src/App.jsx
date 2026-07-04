@@ -282,21 +282,32 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
       if (p && p.d > 60 && p.t >= p.d * 0.9 && endedRef.current) endedRef.current(vid, Math.round(p.d / 60));
     };
 
+    // Build the iframe ourselves so fullscreen permissions are guaranteed
+    // (API-constructed iframes can miss allowfullscreen) and the video plays
+    // even if the API script is blocked; the API attaches via enablejsapi
+    // afterwards for progress tracking and control.
+    const params = new URLSearchParams({
+      autoplay: "1", rel: "0", playsinline: "1", fs: "1",
+      // German player UI, German captions on by default; hl also steers
+      // YouTube's default caption/audio pick on multi-language uploads
+      hl: "de", cc_lang_pref: "de", cc_load_policy: "1",
+      enablejsapi: "1", origin: window.location.origin,
+    });
+    if (playlistId) {
+      params.set("listType", "playlist");
+      params.set("list", playlistId);
+      params.set("index", String(index || 0));
+    }
+    const iframe = document.createElement("iframe");
+    iframe.src = `https://www.youtube-nocookie.com/embed/${playlistId ? "videoseries" : videoId}?${params}`;
+    iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
+    iframe.allowFullscreen = true;
+    iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;";
+    holder.current.appendChild(iframe);
+
     loadYT().then((YT) => {
-      if (destroyed || !holder.current) return;
-      const inner = document.createElement("div");
-      holder.current.appendChild(inner);
-      player = new YT.Player(inner, {
-        host: "https://www.youtube-nocookie.com",
-        width: "100%", height: "100%",
-        ...(playlistId ? {} : { videoId }),
-        playerVars: {
-          autoplay: 1, rel: 0, playsinline: 1,
-          // German player UI, German captions on by default; hl also steers
-          // YouTube's default caption/audio pick on multi-language uploads
-          hl: "de", cc_lang_pref: "de", cc_load_policy: 1,
-          ...(playlistId ? { listType: "playlist", list: playlistId, index: index || 0 } : {}),
-        },
+      if (destroyed) return;
+      player = new YT.Player(iframe, {
         events: {
           onStateChange: (e) => {
             const vid = currentId();
