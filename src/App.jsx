@@ -292,6 +292,9 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
         ...(playlistId ? {} : { videoId }),
         playerVars: {
           autoplay: 1, rel: 0, playsinline: 1,
+          // German player UI, German captions on by default; hl also steers
+          // YouTube's default caption/audio pick on multi-language uploads
+          hl: "de", cc_lang_pref: "de", cc_load_policy: 1,
           ...(playlistId ? { listType: "playlist", list: playlistId, index: index || 0 } : {}),
         },
         events: {
@@ -303,6 +306,8 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
             }
             if (e.data === 1 && vid && resumedFor !== vid) {
               resumedFor = vid;
+              // prefer the German caption track when the upload has one
+              try { player.setOption("captions", "track", { languageCode: "de" }); } catch (err) { /* module not loaded */ }
               const p = readProgress().videos[vid];
               if (p && p.t > 20 && p.d > 0 && p.t < p.d - 20) {
                 try { player.seekTo(p.t, true); } catch (err) { /* ignore */ }
@@ -721,7 +726,7 @@ export default function DreamingGerman() {
               </span>
             </div>
             <p style={{ fontSize: 13, opacity: 0.8, maxWidth: 640, margin: "0 0 20px", lineHeight: 1.5 }}>
-              All nine classic seasons, official and free from the Pokémon TV channel. The uploads carry multiple audio tracks — open the player's ⚙ settings and switch the audio track to <strong>Deutsch</strong> (available on most seasons). Tap <strong>☰ Alle Folgen</strong> to browse every episode; your spot in each video is saved automatically.
+              All nine classic seasons, official and free from the Pokémon TV channel. The player is set to German — subtitles default to <strong>Deutsch</strong> automatically. The uploads also carry a German audio dub on most seasons: if an episode starts in English, switch once via the player's ⚙ → Audiotrack → <strong>Deutsch</strong> (YouTube remembers your choice). Tap <strong>☰ Alle Folgen</strong> to browse every episode; your spot in each video is saved automatically.
             </p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 24 }}>
               {CLASSIC_SEASONS.map((s) => (
