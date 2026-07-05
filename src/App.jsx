@@ -139,6 +139,7 @@ const ROADMAP = [
 
 const STORAGE_KEY = "dreaming-german-v1";
 const THEME_KEY = "dreaming-german-theme";
+const AUDIO_HINT_KEY = "dreaming-german-audiohint-v1";
 const PROGRESS_KEY = "dreaming-german-progress-v1";
 const PLAYLIST_CACHE_KEY = "dreaming-german-playlists-v1";
 const TITLE_CACHE_KEY = "dreaming-german-titles-v1";
@@ -356,6 +357,10 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
 // The same element is only restyled, never remounted, so playback continues.
 function PlayerFrame({ id, playlist, thumb, title, now, onPlay, onEnded }) {
   const [big, setBig] = useState(false);
+  const [hintGone, setHintGone] = useState(() => {
+    try { return localStorage.getItem(AUDIO_HINT_KEY) === "1"; } catch (e) { return true; }
+  });
+  const [hintVisible, setHintVisible] = useState(false);
   const prog = !now && id ? readProgress().videos[id] : null;
   const pct = prog && prog.d > 0 ? Math.min(100, (prog.t / prog.d) * 100) : 0;
 
@@ -369,6 +374,18 @@ function PlayerFrame({ id, playlist, thumb, title, now, onPlay, onEnded }) {
   }, [big]);
 
   const bigNow = big && !!now;
+
+  // Point playlist viewers (multi-audio Pokémon uploads) at YouTube's ⚙ for
+  // the German dub — the embed API cannot switch audio tracks itself.
+  useEffect(() => {
+    if (bigNow && playlist && !hintGone) {
+      setHintVisible(true);
+      const t = setTimeout(() => setHintVisible(false), 10000);
+      return () => clearTimeout(t);
+    }
+    setHintVisible(false);
+  }, [bigNow, playlist, hintGone]);
+
   return (
     <div style={bigNow
       ? { position: "fixed", inset: 0, zIndex: 100, background: "#000" }
@@ -379,14 +396,30 @@ function PlayerFrame({ id, playlist, thumb, title, now, onPlay, onEnded }) {
           aria-label={bigNow ? "Vollbild verlassen" : "Vollbild (Untertitel bleiben sichtbar)"}
           title={bigNow ? "Schließen (Esc)" : "Vollbild mit Untertiteln"}
           style={{
+            // top-LEFT so YouTube's ⚙ settings (top-right on phones) stays reachable
             position: bigNow ? "fixed" : "absolute", zIndex: 110,
             top: bigNow ? "max(12px, env(safe-area-inset-top))" : 8,
-            right: bigNow ? "max(12px, env(safe-area-inset-right))" : 8,
+            left: bigNow ? "max(12px, env(safe-area-inset-left))" : 8,
             width: 40, height: 40, borderRadius: "50%", border: "2px solid #fff",
             background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 16, fontWeight: 900,
             cursor: "pointer", lineHeight: 1, boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
           }}>
           {bigNow ? "✕" : "⛶"}
+        </button>
+      )}
+      {hintVisible && (
+        <button
+          onClick={() => { setHintVisible(false); setHintGone(true); try { localStorage.setItem(AUDIO_HINT_KEY, "1"); } catch (e) { /* ignore */ } }}
+          style={{
+            position: "fixed", zIndex: 110,
+            top: "max(64px, calc(env(safe-area-inset-top) + 52px))",
+            right: "max(12px, env(safe-area-inset-right))",
+            maxWidth: 260, padding: "10px 12px", textAlign: "left",
+            background: "rgba(0,0,0,0.85)", color: "#fff", border: `2px solid ${YELLOW}`,
+            fontSize: 13, lineHeight: 1.45, cursor: "pointer", boxShadow: "0 2px 12px rgba(0,0,0,0.6)",
+          }}>
+          <strong>Deutscher Ton:</strong> ⚙ oben rechts → „Audiotrack“ → <strong>Deutsch</strong>.<br />
+          <span style={{ opacity: 0.75 }}>Untertitel sind schon auf Deutsch · antippen zum Ausblenden</span>
         </button>
       )}
       {now ? (
