@@ -351,11 +351,44 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
 }
 
 // Thumbnail with play button and a red "already started" bar, like YouTube's.
+// While playing, a ⛶ button expands the player to fill the screen in-page
+// (theater mode) — unlike native fullscreen, YouTube's subtitles stay visible.
+// The same element is only restyled, never remounted, so playback continues.
 function PlayerFrame({ id, playlist, thumb, title, now, onPlay, onEnded }) {
+  const [big, setBig] = useState(false);
   const prog = !now && id ? readProgress().videos[id] : null;
   const pct = prog && prog.d > 0 ? Math.min(100, (prog.t / prog.d) * 100) : 0;
+
+  useEffect(() => {
+    if (!big) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => { if (e.key === "Escape") setBig(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [big]);
+
+  const bigNow = big && !!now;
   return (
-    <div style={{ position: "relative", paddingTop: "56.25%", background: INK }}>
+    <div style={bigNow
+      ? { position: "fixed", inset: 0, zIndex: 100, background: "#000" }
+      : { position: "relative", paddingTop: "56.25%", background: INK }}>
+      {now && (
+        <button
+          onClick={() => setBig(!bigNow)}
+          aria-label={bigNow ? "Vollbild verlassen" : "Vollbild (Untertitel bleiben sichtbar)"}
+          title={bigNow ? "Schließen (Esc)" : "Vollbild mit Untertiteln"}
+          style={{
+            position: bigNow ? "fixed" : "absolute", zIndex: 110,
+            top: bigNow ? "max(12px, env(safe-area-inset-top))" : 8,
+            right: bigNow ? "max(12px, env(safe-area-inset-right))" : 8,
+            width: 40, height: 40, borderRadius: "50%", border: "2px solid #fff",
+            background: "rgba(0,0,0,0.65)", color: "#fff", fontSize: 16, fontWeight: 900,
+            cursor: "pointer", lineHeight: 1, boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+          }}>
+          {bigNow ? "✕" : "⛶"}
+        </button>
+      )}
       {now ? (
         <ApiPlayer key={now.nonce || `${now.videoId || id || ""}-${now.index || 0}`} videoId={now.videoId || id} playlistId={playlist} index={now.index} onEnded={onEnded} />
       ) : (
