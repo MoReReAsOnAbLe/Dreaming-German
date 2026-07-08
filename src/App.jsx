@@ -294,13 +294,21 @@ function ApiPlayer({ videoId, playlistId, index, onEnded }) {
       hl: "de", cc_lang_pref: "de", cc_load_policy: "1",
       enablejsapi: "1", origin: window.location.origin,
     });
-    if (playlistId) {
+    // Loading a specific video inside a playlist: use embed/VIDEO_ID?list=…
+    // The clicked episode plays and the playlist still continues after it.
+    // (The embed player ignores the `index` param on videoseries, which is
+    // why clicking any episode used to jump to the first one.)
+    let target;
+    if (videoId) {
+      target = videoId;
+      if (playlistId) params.set("list", playlistId);
+    } else {
+      target = "videoseries";
       params.set("listType", "playlist");
       params.set("list", playlistId);
-      params.set("index", String(index || 0));
     }
     const iframe = document.createElement("iframe");
-    iframe.src = `https://www.youtube-nocookie.com/embed/${playlistId ? "videoseries" : videoId}?${params}`;
+    iframe.src = `https://www.youtube-nocookie.com/embed/${target}?${params}`;
     iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
     iframe.allowFullscreen = true;
     iframe.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0;";
